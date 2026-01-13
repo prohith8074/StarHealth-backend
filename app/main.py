@@ -73,12 +73,32 @@ app = FastAPI(title="Star Health Bot API")
 logger.info("🚀 Star Health Bot API Starting...")
 
 # CORS middleware
+# Note: When allow_credentials=True, you cannot use allow_origins=["*"]
+# Must specify exact origins
+allowed_origins = [
+    "https://star-health.rapid.studio.lyzr.ai",
+    "https://star-health.rapid.studio.lyzr.ai/",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+]
+
+# Allow origins from environment variable if set
+cors_origins_env = os.getenv("CORS_ORIGINS")
+if cors_origins_env:
+    allowed_origins.extend([origin.strip() for origin in cors_origins_env.split(",")])
+
+logger.info(f"🌐 CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Routes
@@ -110,7 +130,7 @@ async def root_post_redirect(request: Request, background_tasks: BackgroundTasks
     """
     logger.warning("⚠️ POST received at root '/' - redirecting to /webhook handler")
     logger.info(f"   Request from: {request.client.host if request.client else 'unknown'}")
-    
+
     # Forward to the webhook handler
     try:
         form_data = await request.form()
@@ -118,15 +138,15 @@ async def root_post_redirect(request: Request, background_tasks: BackgroundTasks
         From = form_data.get("From")
         To = form_data.get("To")
         Body = form_data.get("Body")
-        
+
         # If it looks like a Twilio webhook, process it
         if MessageSid and From and Body:
             logger.info("📧 Detected Twilio webhook at root, forwarding to handler")
             from app.routes.whatsapp import _process_whatsapp_message
             twiml_response = await _process_whatsapp_message(
-                MessageSid=MessageSid, 
-                From=From, 
-                To=To, 
+                MessageSid=MessageSid,
+                From=From,
+                To=To,
                 Body=Body,
                 background_tasks=background_tasks
             )
@@ -149,7 +169,7 @@ async def webhook_root(request: Request, background_tasks: BackgroundTasks):
     logger.info("=" * 70)
     logger.info("📧 WEBHOOK RECEIVED AT ROOT /webhook")
     logger.info("=" * 70)
-    
+
     try:
         # Get form data
         form_data = await request.form()
@@ -157,14 +177,14 @@ async def webhook_root(request: Request, background_tasks: BackgroundTasks):
         From = form_data.get("From")
         To = form_data.get("To")
         Body = form_data.get("Body")
-        
+
         logger.info(f"📱 Message Details:")
         logger.info(f"   From: {From}")
         logger.info(f"   To: {To}")
         logger.info(f"   MessageSid: {MessageSid}")
         logger.info(f"   Body: {Body}")
         logger.info("=" * 70)
-        
+
         # Validate required fields
         if not all([MessageSid, From, To, Body]):
             logger.error(f"❌ Missing required fields")
@@ -173,17 +193,17 @@ async def webhook_root(request: Request, background_tasks: BackgroundTasks):
             logger.error(f"   To: {To}")
             logger.error(f"   Body: {Body}")
             return {"status": "error", "message": "Missing required fields"}
-        
+
         # Import and call the whatsapp webhook handler
         from app.routes.whatsapp import _process_whatsapp_message
         twiml_response = await _process_whatsapp_message(
-            MessageSid=MessageSid, 
-            From=From, 
-            To=To, 
+            MessageSid=MessageSid,
+            From=From,
+            To=To,
             Body=Body,
             background_tasks=background_tasks
         )
-        
+
         # Convert to string for logging and response
         twiml_str = str(twiml_response)
         logger.info("=" * 70)
@@ -192,10 +212,10 @@ async def webhook_root(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"   Length: {len(twiml_str)} characters")
         logger.debug(f"   TwiML Content:\n{twiml_str}")
         logger.info("=" * 70)
-        
+
         # Return as XML response (TwiML format)
         return Response(content=twiml_str, media_type="application/xml")
-    
+
     except Exception as e:
         logger.error(f"❌ Error processing webhook: {e}", exc_info=True)
         # Return error as TwiML
@@ -215,16 +235,16 @@ async def startup_event():
     FastAPI starts immediately, services initialize in background.
     """
     global _startup_initialized
-    
+
     # Guard: prevent duplicate initialization
     async with _startup_lock:
         if _startup_initialized:
             logger.warning("⚠️ Startup already initialized, skipping")
             return
         _startup_initialized = True
-    
+
     logger.info("🚀 Initializing services (non-blocking)...")
-    
+
     # Start readiness monitor immediately (non-blocking)
     try:
         monitor = get_monitor()
@@ -232,7 +252,7 @@ async def startup_event():
     except Exception as e:
         logger.error(f"❌ Failed to start readiness monitor: {e}", exc_info=True)
         # Continue startup even if monitor fails
-    
+
     # Schedule background initialization (non-blocking)
     asyncio.create_task(_initialize_services_background())
 
@@ -246,7 +266,7 @@ async def _initialize_services_background():
             logger.error("❌ MongoDB initialization timed out after 30s")
         except Exception as e:
             logger.error(f"❌ MongoDB initialization failed: {e}", exc_info=True)
-        
+
         # Step 2: Initialize Redis (with timeout)
         try:
             await asyncio.wait_for(_init_redis(), timeout=10.0)
@@ -254,19 +274,19 @@ async def _initialize_services_background():
             logger.warning("⚠️ Redis initialization timed out (non-critical)")
         except Exception as e:
             logger.warning(f"⚠️ Redis initialization failed (non-critical): {e}")
-        
+
         # Step 3: Create indexes (idempotent, non-blocking)
         asyncio.create_task(_create_indexes_async())
-        
+
         # Step 4: Setup watchers (non-blocking)
         asyncio.create_task(_setup_watchers_async())
-        
+
         # Step 5: Pre-warm dashboard (non-blocking, optional)
         asyncio.create_task(_prewarm_dashboard_async())
-        
+
         # Step 6: Pre-warm RAG content (non-blocking)
         asyncio.create_task(_prewarm_rag_async())
-        
+
         logger.info("✅ Background initialization tasks scheduled")
     except Exception as e:
         logger.error(f"❌ Background initialization error: {e}", exc_info=True)
@@ -274,7 +294,7 @@ async def _initialize_services_background():
 async def _init_mongodb():
     """Initialize MongoDB connection (with retries)"""
     from app.config.database import get_database, is_mongodb_ready
-    
+
     max_retries = 30
     for attempt in range(max_retries):
         try:
@@ -315,7 +335,7 @@ async def _setup_watchers_async():
         # Set event loop for WebSocket manager
         from app.routes.websocket import get_manager
         get_manager().set_event_loop(asyncio.get_event_loop())
-        
+
         # Setup MongoDB change stream watcher
         setup_mongo_watcher()
         logger.info("✅ Watchers initialized")
@@ -380,7 +400,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "error_type": type(exc).__name__
         }
     )
-    
+
     # During startup/warmup, return 503 instead of 500
     try:
         from app.config.database import is_warming_up
@@ -402,7 +422,7 @@ async def global_exception_handler(request: Request, exc: Exception):
                 "message": "Backend is initializing. Please retry in a few seconds."
             }
         )
-    
+
     # Normal operation - return 500 (but no details)
     return JSONResponse(
         status_code=500,
@@ -426,15 +446,15 @@ async def test_lyzr_connection():
 async def test_twiml():
     """Test TwiML response generation"""
     from twilio.twiml.messaging_response import MessagingResponse
-    
+
     response = MessagingResponse()
     response.message("Hello!")
     response.message("This is a test message.")
     response.message("This message has a longer text that might need to be split if it exceeds character limits.")
-    
+
     twiml_str = str(response)
     logger.info(f"Generated TwiML:\n{twiml_str}")
-    
+
     return {
         "twiml": twiml_str,
         "message_count": 3,
