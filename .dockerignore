@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+logs/
+debug.log
+
+# Test outputs
+*_test_output*.txt
+test_output.txt
+
+# IDE
+.vscode/
+.cursor/
+.idea/
+*.swp
+*.swo
+
+# Maintenance & Debug Scripts (Production Unwanted)
+debug_feedback.py
+debug_timestamps.py
+inspect_feedback.py
+migrate_timestamps.py
+verify_counts.py
+admin.py
+scripts/test_product_tracking.py
+scripts/check_*.py
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Temporary files
+*.tmp
+uvicorn
+2.1.1
+
+# Environment files (should be provided at runtime)
+.env
+.env.local
+.env.*.local
+
+
